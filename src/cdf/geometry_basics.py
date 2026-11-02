@@ -15,7 +15,7 @@ Adding a new function with Copilot
 """
 
 import math
-import Rhino.Geometry as rg
+import Rhino.Geometry as rg  # type: ignore[reportMissingImports]
 
 def create_cone(base_point=None, height=10.0, radius=5.0, cap_bottom=True):
     """
@@ -35,8 +35,20 @@ def create_cone(base_point=None, height=10.0, radius=5.0, cap_bottom=True):
     cone = rg.Cone(plane, height, radius)
     return cone.ToBrep(cap_bottom)
 
-def create_sphere():
-    pass  # TODO: Implement this function to create a sphere using Rhino.Geometry
+def create_sphere(center_point=None, radius=5.0):
+    """
+    Build a sphere as a Brep.
+
+    center_point : Rhino.Geometry.Point3d -- center of the sphere
+    radius       : float -- sphere radius
+
+    Returns a Rhino.Geometry.Brep.
+    """
+    if center_point is None:
+        center_point = rg.Point3d(0, 0, 0)
+
+    sphere = rg.Sphere(center_point, radius)
+    return sphere.ToBrep()
 
 def boolean_difference(brep_a, brep_b):
     """
@@ -75,3 +87,339 @@ def copy_brep_along_z(brep, distance, copy_count):
         copy.Transform(rg.Transform.Translation(rg.Vector3d(0, 0, distance * i)))
         copies.append(copy)
     return copies
+
+def copy_box_along_z_decreasing_height(box, distance, copy_count, height_decrement):
+    """
+    Create copies of a box along +X, reducing each copy's height along Z.
+
+    box : Rhino.Geometry.Brep -- the box to copy
+    distance : float -- the X offset between consecutive copies
+    copy_count : int -- the number of copies to create
+    height_decrement : float -- amount subtracted from the height for each copy
+
+    Returns a list of Rhino.Geometry.Brep copies; copy i is moved along X by
+    distance * i and has height reduced by height_decrement * i.
+    """
+    if box is None:
+        raise ValueError("box must be provided.")
+    if copy_count < 0:
+        raise ValueError("copy_count must not be negative.")
+    if height_decrement <= 0:
+        raise ValueError("height_decrement must be positive.")
+
+    copy_count = int(copy_count)
+    if copy_count == 0:
+        return []
+
+    bounds = box.GetBoundingBox(True)
+    if not bounds.IsValid:
+        raise ValueError("box must have a valid bounding box.")
+
+    height = bounds.Max.Z - bounds.Min.Z
+    if height <= 0 or height_decrement * copy_count >= height:
+        raise ValueError("height_decrement would make a copy's height non-positive.")
+
+    scale_plane = rg.Plane(
+        rg.Point3d(bounds.Min.X, bounds.Min.Y, bounds.Min.Z),
+        rg.Vector3d.ZAxis,
+    )
+    copies = []
+    for i in range(1, copy_count + 1):
+        copy = box.DuplicateBrep()
+        height_scale = (height - height_decrement * i) / height
+        copy.Transform(rg.Transform.Scale(scale_plane, 1.0, 1.0, height_scale))
+        copy.Transform(rg.Transform.Translation(rg.Vector3d(distance * i, 0, 0)))
+        copies.append(copy)
+    return copies
+
+def copy_brep_along_vector(brep, vector, copy_count):
+    """
+    Create copies of a Brep, each offset along a specified vector.
+
+    brep : Rhino.Geometry.Brep -- the Brep to copy
+    vector : Rhino.Geometry.Vector3d -- the direction and distance for each copy
+    copy_count : int -- the number of copies to create
+
+    Returns a list of Rhino.Geometry.Brep copies; copy i is moved by vector * (i + 1).
+    """
+    if brep is None:
+        raise ValueError("brep must be provided.")
+    if copy_count < 0:
+        raise ValueError("copy_count must not be negative.")
+
+    copies = []
+    for i in range(1, int(copy_count) + 1):
+        copy = brep.DuplicateBrep()
+        translation_vector = rg.Vector3d(vector)
+        translation_vector *= i
+        copy.Transform(rg.Transform.Translation(translation_vector))
+        copies.append(copy)
+    return copies
+
+def copy_curve_along_z(curve, distance, copy_count):
+    """
+    Create copies of a curve, each offset in the +Z direction.
+
+    curve : Rhino.Geometry.Curve -- the curve to copy
+    distance : float -- the Z spacing between consecutive copies
+    copy_count : int -- the number of copies to create
+
+    Returns a list of Rhino.Geometry.Curve copies; copy i is moved by distance * (i + 1).
+    """
+    if curve is None:
+        raise ValueError("curve must be provided.")
+    if copy_count < 0:
+        raise ValueError("copy_count must not be negative.")
+
+    copies = []
+    for i in range(1, int(copy_count) + 1):
+        copy = curve.DuplicateCurve()
+        copy.Transform(rg.Transform.Translation(rg.Vector3d(0, 0, distance * i)))
+        copies.append(copy)
+    return copies
+
+def copy_curve_along_vector(curve, vector, copy_count):
+    """
+    Create copies of a curve, each offset along a specified vector.
+
+    curve : Rhino.Geometry.Curve -- the curve to copy
+    vector : Rhino.Geometry.Vector3d -- the direction and distance for each copy
+    copy_count : int -- the number of copies to create
+
+    Returns a list of Rhino.Geometry.Curve copies; copy i is moved by vector * (i + 1).
+    """
+    if curve is None:
+        raise ValueError("curve must be provided.")
+    if copy_count < 0:
+        raise ValueError("copy_count must not be negative.")
+
+    copies = []
+    for i in range(1, int(copy_count) + 1):
+        copy = curve.DuplicateCurve()
+        translation_vector = rg.Vector3d(vector)
+        translation_vector *= i
+        copy.Transform(rg.Transform.Translation(translation_vector))
+        copies.append(copy)
+    return copies
+
+def create_fractal_tree(base_point=None, height=10.0, radius=1.0, levels=3, branch_angle=30.0):
+    """
+    Build a simple fractal tree as a Brep.
+
+    base_point : Rhino.Geometry.Point3d -- the starting point of the tree
+    height     : float -- the height of the initial trunk
+    radius     : float -- the radius of the trunk
+    levels     : int -- the number of branching levels
+    branch_angle : float -- the angle (in degrees) between branches
+
+    Returns a list of Rhino.Geometry.Brep representing the tree structure.
+    """
+    if base_point is None:
+        base_point = rg.Point3d(0, 0, 0)
+
+    def add_branch(point, height, radius, level):
+        if level == 0:
+            return []
+
+        # Create trunk
+        trunk = create_cone(point, height, radius)
+        branches = [trunk]
+
+        # Calculate new branch points
+        top_point = rg.Point3d(point.X, point.Y, point.Z + height)
+        angle_rad = math.radians(branch_angle)
+
+        # Left branch
+        left_vector = rg.Vector3d(-math.sin(angle_rad) * height / 2, 0, math.cos(angle_rad) * height / 2)
+        left_branch_point = top_point + left_vector
+        branches += add_branch(left_branch_point, height / 2, radius / 2, level - 1)
+
+        # Right branch
+        right_vector = rg.Vector3d(math.sin(angle_rad) * height / 2, 0, math.cos(angle_rad) * height / 2)
+        right_branch_point = top_point + right_vector
+        branches += add_branch(right_branch_point, height / 2, radius / 2, level - 1)
+
+        return branches
+
+    return add_branch(base_point, height, radius, levels)
+
+def create_cylinder(base_point=None, height=10.0, radius=5.0, cap_top=True, cap_bottom=True):
+    """
+    Build a cylinder as a Brep.
+
+    base_point : Rhino.Geometry.Point3d -- center of the cylinder's base circle
+    height     : float -- cylinder height along the base plane's normal (Z by default)
+    radius     : float -- base circle radius
+    cap_top    : bool  -- whether to cap the top circle (closed vs open cylinder)
+    cap_bottom : bool  -- whether to cap the bottom circle (closed vs open cylinder)
+
+    Returns a Rhino.Geometry.Brep.
+    """
+    if base_point is None:
+        base_point = rg.Point3d(0, 0, 0)
+
+    plane = rg.Plane(base_point, rg.Vector3d.ZAxis)
+    base_circle = rg.Circle(plane, radius)
+    cylinder = rg.Cylinder(base_circle, height)
+    return cylinder.ToBrep(cap_bottom, cap_top)
+
+def create_circle(center_point=None, radius=5.0):
+    """
+    Build a circle as a closed NURBS curve in the world XY plane.
+
+    center_point : Rhino.Geometry.Point3d -- center of the circle (default is origin)
+    radius       : float -- circle radius
+
+    Returns a Rhino.Geometry.NurbsCurve.
+    """
+    if center_point is None:
+        center_point = rg.Point3d(0, 0, 0)
+    if radius <= 0:
+        raise ValueError("radius must be positive.")
+
+    plane = rg.Plane(center_point, rg.Vector3d.ZAxis)
+    return rg.Circle(plane, radius).ToNurbsCurve()
+
+def create_square_curve(center_point=None, side_length=10.0):
+    """
+    Build a square as a closed NURBS curve in the world XY plane.
+
+    center_point : Rhino.Geometry.Point3d -- center of the square (default is origin)
+    side_length  : float -- length of each side
+
+    Returns a closed Rhino.Geometry.NurbsCurve.
+    """
+    if center_point is None:
+        center_point = rg.Point3d(0, 0, 0)
+    if side_length <= 0:
+        raise ValueError("side_length must be positive.")
+
+    half_side = side_length / 2.0
+    points = [
+        rg.Point3d(center_point.X - half_side, center_point.Y - half_side, center_point.Z),
+        rg.Point3d(center_point.X + half_side, center_point.Y - half_side, center_point.Z),
+        rg.Point3d(center_point.X + half_side, center_point.Y + half_side, center_point.Z),
+        rg.Point3d(center_point.X - half_side, center_point.Y + half_side, center_point.Z),
+        rg.Point3d(center_point.X - half_side, center_point.Y - half_side, center_point.Z),
+    ]
+    return rg.Polyline(points).ToNurbsCurve()
+
+def create_box(corner_point=None, width=10.0, depth=10.0, height=10.0):
+    """
+    Build a box as a Brep.
+
+    corner_point : Rhino.Geometry.Point3d -- the corner of the box (default is origin)
+    width        : float -- width of the box along the X-axis
+    depth        : float -- depth of the box along the Y-axis
+    height       : float -- height of the box along the Z-axis
+
+    Returns a Rhino.Geometry.Brep.
+    """
+    if corner_point is None:
+        corner_point = rg.Point3d(0, 0, 0)
+
+    plane = rg.Plane(corner_point, rg.Vector3d.ZAxis)
+    box = rg.Box(
+        plane,
+        rg.Interval(0, width),
+        rg.Interval(0, depth),
+        rg.Interval(0, height),
+    )
+    return box.ToBrep()
+
+def create_loft_solid(profile_a, profile_b, tolerance=0.01):
+    """
+    Create a solid by lofting between two closed profile curves.
+
+    profile_a  : Rhino.Geometry.Curve -- first closed section curve
+    profile_b  : Rhino.Geometry.Curve -- second closed section curve
+    tolerance  : float -- tolerance used to cap the loft's planar ends
+
+    Returns a closed Rhino.Geometry.Brep.
+    """
+    if profile_a is None or profile_b is None:
+        raise ValueError("Both profile_a and profile_b must be provided.")
+    if not profile_a.IsClosed or not profile_b.IsClosed:
+        raise ValueError("Both profile curves must be closed.")
+    if tolerance <= 0:
+        raise ValueError("tolerance must be positive.")
+
+    lofts = rg.Brep.CreateFromLoft(
+        [profile_a, profile_b],
+        rg.Point3d.Unset,
+        rg.Point3d.Unset,
+        rg.LoftType.Normal,
+        False,
+    )
+    if lofts is None or len(lofts) == 0:
+        raise RuntimeError("The loft operation did not produce a Brep.")
+
+    solid = lofts[0].CapPlanarHoles(tolerance)
+    if solid is None or not solid.IsSolid:
+        raise RuntimeError(
+            "The loft was created, but its ends could not be capped into a solid. "
+            "Check that both profiles are planar and compatible."
+        )
+    return solid
+
+def sweep_square_along_helix(center_point=None, turns=3.0, radius=5.0, axis_length=10.0, side_length=1.0, cap_ends=True, tolerance=0.01):
+    """
+    Sweep a square cross-section along a vertical helical curve.
+
+    center_point : Rhino.Geometry.Point3d -- center of the helix axis at its base
+    turns        : float -- number of complete turns
+    radius       : float -- radius of the helix
+    axis_length  : float -- vertical distance from the first to last turn
+    side_length  : float -- side length of the square cross-section
+    cap_ends     : bool -- whether to cap the two ends of the sweep
+    tolerance    : float -- sweep tolerance
+
+    Returns a Rhino.Geometry.Brep.
+    """
+    if center_point is None:
+        center_point = rg.Point3d(0, 0, 0)
+    if turns <= 0 or radius <= 0 or axis_length <= 0 or side_length <= 0 or tolerance <= 0:
+        raise ValueError("turns, radius, axis_length, side_length, and tolerance must be positive.")
+
+    point_count = max(24, int(math.ceil(turns * 24)) + 1)
+    rail_points = []
+    for i in range(point_count):
+        fraction = i / float(point_count - 1)
+        angle = 2.0 * math.pi * turns * fraction
+        rail_points.append(
+            rg.Point3d(
+                center_point.X + radius * math.cos(angle),
+                center_point.Y + radius * math.sin(angle),
+                center_point.Z + axis_length * fraction,
+            )
+        )
+    rail = rg.Curve.CreateInterpolatedCurve(rail_points, 3)
+    if rail is None:
+        raise RuntimeError("Could not create the helical rail curve.")
+
+    tangent = rg.Vector3d(0, 2.0 * math.pi * turns * radius, axis_length)
+    tangent.Unitize()
+    radial = rg.Vector3d(1, 0, 0)
+    transverse = rg.Vector3d.CrossProduct(tangent, radial)
+    transverse.Unitize()
+
+    half_side = side_length / 2.0
+    start = rail_points[0]
+    profile_points = [
+        start - radial * half_side - transverse * half_side,
+        start + radial * half_side - transverse * half_side,
+        start + radial * half_side + transverse * half_side,
+        start - radial * half_side + transverse * half_side,
+        start - radial * half_side - transverse * half_side,
+    ]
+    profile = rg.Polyline(profile_points).ToNurbsCurve()
+
+    sweeps = rg.Brep.CreateFromSweep(rail, profile, False, tolerance)
+    if sweeps is None or len(sweeps) == 0:
+        raise RuntimeError("The square sweep did not produce a Brep.")
+    result = sweeps[0]
+    if cap_ends:
+        result = result.CapPlanarHoles(tolerance)
+        if result is None:
+            raise RuntimeError("The swept Brep was created, but its ends could not be capped.")
+    return result
