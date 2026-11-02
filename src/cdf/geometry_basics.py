@@ -16,6 +16,7 @@ Adding a new function with Copilot
 
 import math
 import Rhino.Geometry as rg  # type: ignore[reportMissingImports]
+import random
 
 def create_cone(base_point=None, height=10.0, radius=5.0, cap_bottom=True):
     """
@@ -50,19 +51,111 @@ def create_sphere(center_point=None, radius=5.0):
     sphere = rg.Sphere(center_point, radius)
     return sphere.ToBrep()
 
-def boolean_difference(brep_a, brep_b):
+def create_random_spheres_in_cube(
+    sphere_count=20,
+    corner_point=None,
+    cube_size=10.0,
+    width=None,
+    depth=None,
+    height=None,
+    min_radius=0.3,
+    max_radius=0.8,
+    clearance=0.01,
+    seed=None,
+    max_attempts=1000,
+):
     """
-    Perform a boolean difference operation between two Breps.
+    Randomly place non-intersecting spheres inside an imaginary box.
+
+    sphere_count : int -- number of spheres; accepts integer-valued numeric inputs
+    corner_point : Rhino.Geometry.Point3d -- minimum corner of the box
+    cube_size    : float -- fallback length for each side when dimensions are omitted
+    width        : float -- box size along X; defaults to cube_size
+    depth        : float -- box size along Y; defaults to cube_size
+    height       : float -- box size along Z; defaults to cube_size
+    min_radius   : float -- minimum sphere radius
+    max_radius   : float -- maximum sphere radius
+    clearance    : float -- minimum gap between spheres and from cube walls
+    seed         : int -- optional random seed for repeatable results
+    max_attempts : int -- placement attempts allowed for each sphere
+
+    Returns a list of Rhino.Geometry.Brep spheres.
+    Raises RuntimeError if the requested number of spheres cannot be placed.
+    """
+    try:
+        integer_sphere_count = int(sphere_count)
+        integer_max_attempts = int(max_attempts)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError("sphere_count and max_attempts must be integers.") from error
+    if integer_sphere_count != sphere_count or integer_max_attempts != max_attempts:
+        raise ValueError("sphere_count and max_attempts must be whole numbers.")
+    sphere_count = integer_sphere_count
+    max_attempts = integer_max_attempts
+
+    if corner_point is None:
+        corner_point = rg.Point3d(0, 0, 0)
+    width = cube_size if width is None else width
+    depth = cube_size if depth is None else depth
+    height = cube_size if height is None else height
+    if sphere_count < 0:
+        raise ValueError("sphere_count must not be negative.")
+    if width <= 0 or depth <= 0 or height <= 0:
+        raise ValueError("width, depth, and height must be positive.")
+    if min_radius <= 0 or max_radius < min_radius:
+        raise ValueError("Radii must be positive and max_radius >= min_radius.")
+    if clearance <= 0:
+        raise ValueError("clearance must be positive to keep spheres off each other and the walls.")
+    if max_attempts <= 0:
+        raise ValueError("max_attempts must be positive.")
+    if 2.0 * (max_radius + clearance) > min(width, depth, height):
+        raise ValueError("The largest sphere does not fit inside the box with the requested clearance.")
+
+    rng = random.Random(seed)
+    placed = []
+
+    for _ in range(sphere_count):
+        for _ in range(max_attempts):
+            radius = rng.uniform(min_radius, max_radius)
+            inset = radius + clearance
+            point = rg.Point3d(
+                rng.uniform(corner_point.X + inset, corner_point.X + width - inset),
+                rng.uniform(corner_point.Y + inset, corner_point.Y + depth - inset),
+                rng.uniform(corner_point.Z + inset, corner_point.Z + height - inset),
+            )
+
+            if all(
+                point.DistanceTo(other_center) > radius + other_radius + clearance
+                for other_center, other_radius in placed
+            ):
+                placed.append((point, radius))
+                break
+        else:
+            raise RuntimeError(
+                "Could place only {} of {} spheres. Reduce sphere_count or max_radius, "
+                "increase box dimensions or max_attempts, or use a different seed.".format(
+                    len(placed), sphere_count
+                )
+            )
+
+    return [rg.Sphere(point, radius).ToBrep() for point, radius in placed]
+
+def boolean_difference(brep_a, brep_b, brep_c=None):
+    """
+    Subtract one or two Breps from a first Brep.
 
     brep_a : Rhino.Geometry.Brep -- the first Brep
-    brep_b : Rhino.Geometry.Brep -- the second Brep to subtract from the first
+    brep_b : Rhino.Geometry.Brep -- a Brep to subtract from the first
+    brep_c : Rhino.Geometry.Brep -- an optional second Brep to subtract
 
     Returns a list of Rhino.Geometry.Brep resulting from the difference.
     """
     if brep_a is None or brep_b is None:
         raise ValueError("Both brep_a and brep_b must be provided.")
 
-    result = rg.Brep.CreateBooleanDifference(brep_a, brep_b, 0.001)
+    if brep_c is None:
+        result = rg.Brep.CreateBooleanDifference(brep_a, brep_b, 0.001)
+    else:
+        result = rg.Brep.CreateBooleanDifference([brep_a], [brep_b, brep_c], 0.001)
     return result
 
 
