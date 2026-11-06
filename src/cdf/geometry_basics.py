@@ -79,8 +79,8 @@ def create_random_spheres_in_cube(
     seed         : int -- optional random seed for repeatable results
     max_attempts : int -- placement attempts allowed for each sphere
 
-    Returns a list of Rhino.Geometry.Brep spheres.
-    Raises RuntimeError if the requested number of spheres cannot be placed.
+    Returns a list of Rhino.Geometry.Brep spheres. If the requested number
+    cannot be placed, returns the spheres placed before placement attempts fail.
     """
     try:
         integer_sphere_count = int(sphere_count)
@@ -130,12 +130,7 @@ def create_random_spheres_in_cube(
                 placed.append((point, radius))
                 break
         else:
-            raise RuntimeError(
-                "Could place only {} of {} spheres. Reduce sphere_count or max_radius, "
-                "increase box dimensions or max_attempts, or use a different seed.".format(
-                    len(placed), sphere_count
-                )
-            )
+            break
 
     return [rg.Sphere(point, radius).ToBrep() for point, radius in placed]
 
